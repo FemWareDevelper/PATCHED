@@ -1,0 +1,184 @@
+-- HIGHLIGHT CHAMS VE İSİM ETİKET SİSTEMİ
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local HighlightModule = {}
+
+-- DEFAULT SETTINGS
+HighlightModule.Settings = {
+    Enabled = true,
+    FillColor = Color3.fromRGB(255, 255, 255),
+    FillTransparency = 0.5,
+    OutlineColor = Color3.fromRGB(255, 255, 255),
+    OutlineTransparency = 0,
+    ShowNames = true,
+    NameColor = Color3.fromRGB(255, 255, 255),
+    NameSize = 18
+}
+
+-- HIGHLIGHT VE İSİM ETİKET CACHE
+HighlightModule.Highlights = {}
+HighlightModule.NameTags = {}
+
+function HighlightModule:CreateNameTag(player, character)
+    if not character:FindFirstChild("Head") then return end
+    
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "PlayerNameTag"
+    billboard.Adornee = character.Head
+    billboard.Size = UDim2.new(0, 200, 0, 50)
+    billboard.StudsOffset = Vector3.new(0, 3.5, 0)
+    billboard.AlwaysOnTop = true
+    billboard.LightInfluence = 0
+    billboard.MaxDistance = 100
+    billboard.Parent = character.Head
+    
+    local textLabel = Instance.new("TextLabel")
+    textLabel.Size = UDim2.new(1, 0, 1, 0)
+    textLabel.Text = player.Name
+    textLabel.TextColor3 = self.Settings.NameColor
+    textLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    textLabel.TextStrokeTransparency = 0.5
+    textLabel.BackgroundTransparency = 1
+    textLabel.Font = Enum.Font.GothamBold
+    textLabel.TextSize = self.Settings.NameSize
+    textLabel.Parent = billboard
+    
+    self.NameTags[player] = billboard
+end
+
+function HighlightModule:RemoveNameTag(player)
+    if self.NameTags[player] then
+        self.NameTags[player]:Destroy()
+        self.NameTags[player] = nil
+    end
+end
+
+function HighlightModule:ApplyHighlight(player)
+    if player == LocalPlayer then return end
+    
+    local character = player.Character or player.CharacterAdded:Wait()
+    
+    -- Highlight oluştur
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "PlayerHighlight"
+    highlight.Adornee = character
+    highlight.FillColor = self.Settings.FillColor
+    highlight.FillTransparency = self.Settings.FillTransparency
+    highlight.OutlineColor = self.Settings.OutlineColor
+    highlight.OutlineTransparency = self.Settings.OutlineTransparency
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    highlight.Parent = character
+    
+    self.Highlights[player] = highlight
+    
+    -- İsim etiketi oluştur
+    if self.Settings.ShowNames then
+        self:CreateNameTag(player, character)
+    end
+    
+    -- Karakter değişimlerini takip et
+    player.CharacterAdded:Connect(function(newChar)
+        if self.Highlights[player] then
+            self.Highlights[player]:Destroy()
+        end
+        if self.NameTags[player] then
+            self.NameTags[player]:Destroy()
+        end
+        
+        if self.Settings.Enabled then
+            -- Yeni highlight
+            local newHighlight = highlight:Clone()
+            newHighlight.Adornee = newChar
+            newHighlight.Parent = newChar
+            self.Highlights[player] = newHighlight
+            
+            -- Yeni isim etiketi
+            if self.Settings.ShowNames then
+                self:CreateNameTag(player, newChar)
+            end
+        end
+    end)
+end
+
+function HighlightModule:RemoveHighlight(player)
+    if self.Highlights[player] then
+        self.Highlights[player]:Destroy()
+        self.Highlights[player] = nil
+    end
+    self:RemoveNameTag(player)
+end
+
+function HighlightModule:Toggle(state)
+    self.Settings.Enabled = state
+    
+    if state then
+        -- Tüm oyunculara uygula
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                self:ApplyHighlight(player)
+            end
+        end
+        
+        -- Yeni oyuncular için bağlantı oluştur
+        Players.PlayerAdded:Connect(function(player)
+            if player ~= LocalPlayer then
+                self:ApplyHighlight(player)
+            end
+        end)
+    else
+        -- Tüm efektleri kaldır
+        for player, _ in pairs(self.Highlights) do
+            self:RemoveHighlight(player)
+        end
+    end
+end
+
+function HighlightModule:ToggleNames(state)
+    self.Settings.ShowNames = state
+    
+    if state then
+        -- İsim etiketlerini ekle
+        for player, _ in pairs(self.Highlights) do
+            if player.Character and not self.NameTags[player] then
+                self:CreateNameTag(player, player.Character)
+            end
+        end
+    else
+        -- İsim etiketlerini kaldır
+        for player, _ in pairs(self.NameTags) do
+            self:RemoveNameTag(player)
+        end
+    end
+end
+
+-- SİSTEMİ BAŞLAT
+function HighlightModule:Init()
+    -- Önceki efektleri temizle
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player.Character then
+            if player.Character:FindFirstChild("PlayerHighlight") then
+                player.Character.PlayerHighlight:Destroy()
+            end
+            if player.Character:FindFirstChildWhichIsA("BillboardGui") then
+                player.Character:FindFirstChildWhichIsA("BillboardGui"):Destroy()
+            end
+        end
+    end
+    
+    -- Efektleri etkinleştir
+    self:Toggle(true)
+end
+
+-- GUI ile entegrasyon
+game:GetService("UserInputService").InputBegan:Connect(function(input, processed)
+    if input.KeyCode == Enum.KeyCode.F5 then
+        HighlightModule:Toggle(not HighlightModule.Settings.Enabled)
+    elseif input.KeyCode == Enum.KeyCode.F6 then
+        HighlightModule:ToggleNames(not HighlightModule.Settings.ShowNames)
+    end
+end)
+
+-- Sistemi başlat
+HighlightModule:Init()
+
+return HighlightModule
