@@ -1,0 +1,380 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local Mouse = LocalPlayer:GetMouse()
+
+-- ESP Settings
+local ESP = {
+    Enabled = false, -- Default disabled
+    BoxEnabled = true,
+    HealthEnabled = true,
+    NameEnabled = true,
+    ChamsEnabled = true,
+    ToolEnabled = true,
+    TeamCheck = false,
+    BoxColor = Color3.fromRGB(255, 255, 255),
+    ChamsColor = Color3.fromRGB(255, 255, 255),
+    BoxThickness = 1,
+    HealthBarThickness = 1,
+    TextSize = 14,
+    TextFont = Drawing.Fonts.UI,
+    MaxDistance = 1000,
+    CurrentTarget = nil
+}
+
+-- Target Guide UI
+local TargetGui = Instance.new("ScreenGui")
+local TargetFrame = Instance.new("Frame")
+local TargetImage = Instance.new("ImageLabel")
+local TargetName = Instance.new("TextLabel")
+local TargetTool = Instance.new("TextLabel")
+
+TargetGui.Name = "TargetGui"
+TargetGui.Parent = game.CoreGui
+TargetGui.Enabled = false
+
+TargetFrame.Name = "TargetFrame"
+TargetFrame.Size = UDim2.new(0, 150, 0, 210)
+TargetFrame.Position = UDim2.new(1, -170, 0.5, -105)
+TargetFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+TargetFrame.BorderSizePixel = 0
+TargetFrame.Parent = TargetGui
+
+TargetImage.Name = "TargetImage"
+TargetImage.Size = UDim2.new(0, 130, 0, 130)
+TargetImage.Position = UDim2.new(0.5, -65, 0, 10)
+TargetImage.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+TargetImage.BorderSizePixel = 0
+TargetImage.Parent = TargetFrame
+
+TargetName.Name = "TargetName"
+TargetName.Size = UDim2.new(1, 0, 0, 20)
+TargetName.Position = UDim2.new(0, 0, 0, 145)
+TargetName.BackgroundTransparency = 1
+TargetName.TextColor3 = Color3.fromRGB(255, 255, 255)
+TargetName.TextSize = 16
+TargetName.Font = Enum.Font.SourceSansBold
+TargetName.Parent = TargetFrame
+
+TargetTool.Name = "TargetTool"
+TargetTool.Size = UDim2.new(1, 0, 0, 40)
+TargetTool.Position = UDim2.new(0, 0, 0, 165)
+TargetTool.BackgroundTransparency = 1
+TargetTool.TextColor3 = Color3.fromRGB(200, 200, 255)
+TargetTool.TextSize = 14
+TargetTool.Font = Enum.Font.SourceSans
+TargetTool.TextWrapped = true
+TargetTool.Parent = TargetFrame
+
+-- FOV Circle
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Thickness = 0
+FOVCircle.NumSides = 0
+FOVCircle.Filled = false
+FOVCircle.Visible = false
+FOVCircle.ZIndex = 0
+FOVCircle.Transparency = 0
+
+-- RGB Color Cycle
+local RainbowColor = 0
+
+-- ESP Objects table
+local ESPObjects = {}
+
+-- Chams highlights table
+local ChamsObjects = {}
+
+-- Create Chams function
+local function CreateChams(Character)
+    local Highlight = Instance.new("Highlight")
+    Highlight.FillColor = ESP.ChamsColor
+    Highlight.OutlineColor = ESP.ChamsColor
+    Highlight.FillTransparency = 0.5
+    Highlight.OutlineTransparency = 0
+    Highlight.Adornee = Character
+    Highlight.Parent = Character
+    Highlight.Enabled = ESP.ChamsEnabled and ESP.Enabled
+    return Highlight
+end
+
+-- Create ESP Object function
+local function CreateESPObject()
+    local Object = {
+        Box = Drawing.new("Square"),
+        Name = Drawing.new("Text"),
+        HealthBar = Drawing.new("Square"),
+        HealthBarBackground = Drawing.new("Square"),
+        Tool = Drawing.new("Text")
+    }
+    
+    Object.Box.Thickness = ESP.BoxThickness
+    Object.Box.Filled = false
+    Object.Box.Visible = false
+    Object.Box.Color = ESP.BoxColor
+    Object.Box.Transparency = 1
+    
+    Object.Name.Size = ESP.TextSize
+    Object.Name.Center = true
+    Object.Name.Outline = true
+    Object.Name.Font = ESP.TextFont
+    Object.Name.Visible = false
+    
+    Object.HealthBarBackground.Thickness = ESP.HealthBarThickness
+    Object.HealthBarBackground.Filled = true
+    Object.HealthBarBackground.Color = Color3.fromRGB(0, 0, 0)
+    Object.HealthBarBackground.Transparency = 0.5
+    Object.HealthBarBackground.Visible = false
+    
+    Object.HealthBar.Thickness = ESP.HealthBarThickness
+    Object.HealthBar.Filled = true
+    Object.HealthBar.Color = Color3.fromRGB(0, 255, 0)
+    Object.HealthBar.Transparency = 1
+    Object.HealthBar.Visible = false
+    
+    Object.Tool.Size = ESP.TextSize - 2
+    Object.Tool.Center = true
+    Object.Tool.Outline = true
+    Object.Tool.Font = ESP.TextFont
+    Object.Tool.Visible = false
+    
+    return Object
+end
+
+-- Get player tools function
+local function GetPlayerTools(Player)
+    local tools = {}
+    
+    -- Backpack tools
+    local backpack = Player:FindFirstChild("Backpack")
+    if backpack then
+        for _, item in ipairs(backpack:GetChildren()) do
+            if item:IsA("Tool") then
+                table.insert(tools, item.Name)
+            end
+        end
+    end
+    
+    -- Equipped tools
+    local character = Player.Character
+    if character then
+        for _, item in ipairs(character:GetChildren()) do
+            if item:IsA("Tool") then
+                table.insert(tools, "["..item.Name.."]")
+            end
+        end
+    end
+    
+    return table.concat(tools, ", ")
+end
+
+-- Update target GUI
+local function UpdateTargetGui(Target)
+    if Target and Target:IsA("Player") then
+        local HeadShot = Players:GetUserThumbnailAsync(Target.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420)
+        TargetImage.Image = HeadShot
+        TargetName.Text = Target.Name
+        TargetTool.Text = GetPlayerTools(Target)
+    elseif Target and Target:IsA("Model") then
+        TargetImage.Image = "rbxassetid://0"
+        TargetName.Text = Target.Name
+        TargetTool.Text = "NPC"
+    end
+    TargetGui.Enabled = true
+end
+
+-- Get closest target
+local function GetClosestTarget()
+    local ClosestTarget = nil
+    local ShortestDistance = math.huge
+    local MousePos = Vector2.new(Mouse.X, Mouse.Y)
+
+    for _, Player in pairs(Players:GetPlayers()) do
+        if Player ~= LocalPlayer and Player.Character and Player.Character:FindFirstChild("Humanoid") and Player.Character:FindFirstChild("Head") then
+            local Head = Player.Character.Head
+            local Vector, OnScreen = Camera:WorldToViewportPoint(Head.Position)
+            
+            if OnScreen then
+                local Distance = (MousePos - Vector2.new(Vector.X, Vector.Y)).Magnitude
+                if Distance < ShortestDistance then
+                    ClosestTarget = Player
+                    ShortestDistance = Distance
+                end
+            end
+        end
+    end
+
+    for _, Npc in pairs(workspace:GetDescendants()) do
+        if Npc:IsA("Model") and Npc:FindFirstChild("Humanoid") and Npc:FindFirstChild("Head") and not Players:GetPlayerFromCharacter(Npc) then
+            local Head = Npc.Head
+            local Vector, OnScreen = Camera:WorldToViewportPoint(Head.Position)
+            
+            if OnScreen then
+                local Distance = (MousePos - Vector2.new(Vector.X, Vector.Y)).Magnitude
+                if Distance < ShortestDistance then
+                    ClosestTarget = Npc
+                    ShortestDistance = Distance
+                end
+            end
+        end
+    end
+
+    return ClosestTarget
+end
+
+-- Update rainbow color
+local function UpdateRainbowColor()
+    RainbowColor = RainbowColor + 1
+    if RainbowColor > 360 then RainbowColor = 0 end
+    return Color3.fromHSV(RainbowColor/360, 1, 1)
+end
+
+-- Update ESP
+local function UpdateESP()
+    FOVCircle.Position = Vector2.new(Mouse.X, Mouse.Y)
+    FOVCircle.Visible = ESP.Enabled
+
+    local RainbowTextColor = UpdateRainbowColor()
+
+    for Player, Objects in pairs(ESPObjects) do
+        if Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") and Player.Character:FindFirstChild("Humanoid") then
+            local HumanoidRootPart = Player.Character.HumanoidRootPart
+            local Humanoid = Player.Character.Humanoid
+            local Vector, OnScreen = Camera:WorldToViewportPoint(HumanoidRootPart.Position)
+            local Distance = (Camera.CFrame.Position - HumanoidRootPart.Position).Magnitude
+            
+            if OnScreen and Distance <= ESP.MaxDistance and Player ~= LocalPlayer then
+                local Size = (Camera:WorldToViewportPoint(HumanoidRootPart.Position + Vector3.new(0, 3, 0)).Y - Camera:WorldToViewportPoint(HumanoidRootPart.Position + Vector3.new(0, -3, 0)).Y) / 2
+                local BoxSize = Vector2.new(Size * 1.5, Size * 3)
+                
+                -- Box ESP
+                Objects.Box.Size = BoxSize
+                Objects.Box.Position = Vector2.new(Vector.X - Size * 1.5 / 2, Vector.Y - Size * 1.5)
+                Objects.Box.Visible = ESP.BoxEnabled and ESP.Enabled
+                
+                -- Name
+                Objects.Name.Position = Vector2.new(Vector.X, Vector.Y - Size * 1.5 - 16)
+                Objects.Name.Text = Player.Name
+                Objects.Name.Color = RainbowTextColor
+                Objects.Name.Visible = ESP.NameEnabled and ESP.Enabled
+                
+                -- Health Bar
+                local HealthBarSize = Vector2.new(2, BoxSize.Y)
+                local HealthBarPos = Vector2.new(Objects.Box.Position.X - 5, Objects.Box.Position.Y)
+                
+                Objects.HealthBarBackground.Size = HealthBarSize
+                Objects.HealthBarBackground.Position = HealthBarPos
+                Objects.HealthBarBackground.Visible = ESP.HealthEnabled and ESP.Enabled
+                
+                Objects.HealthBar.Size = Vector2.new(2, (Humanoid.Health / Humanoid.MaxHealth) * BoxSize.Y)
+                Objects.HealthBar.Position = Vector2.new(HealthBarPos.X, HealthBarPos.Y + (BoxSize.Y - Objects.HealthBar.Size.Y))
+                Objects.HealthBar.Color = Color3.fromHSV((Humanoid.Health / Humanoid.MaxHealth) * 0.3, 1, 1)
+                Objects.HealthBar.Visible = ESP.HealthEnabled and ESP.Enabled
+
+                -- Tool info
+                Objects.Tool.Position = Vector2.new(Vector.X, Vector.Y + Size * 1.5 + 5)
+                Objects.Tool.Text = GetPlayerTools(Player)
+                Objects.Tool.Color = Color3.fromRGB(200, 200, 255)
+                Objects.Tool.Visible = ESP.ToolEnabled and ESP.Enabled
+
+                -- Chams
+                if ChamsObjects[Player] then
+                    ChamsObjects[Player].Enabled = ESP.ChamsEnabled and ESP.Enabled
+                end
+            else
+                for _, Object in pairs(Objects) do
+                    Object.Visible = false
+                end
+            end
+        else
+            for _, Object in pairs(Objects) do
+                Object.Visible = false
+            end
+        end
+    end
+end
+
+-- Toggle ESP function
+local function ToggleESP()
+    ESP.Enabled = not ESP.Enabled
+    
+    if not ESP.Enabled then
+        -- Hide all ESP elements when disabled
+        for _, Objects in pairs(ESPObjects) do
+            for _, Object in pairs(Objects) do
+                Object.Visible = false
+            end
+        end
+        
+        -- Disable Chams
+        for _, Chams in pairs(ChamsObjects) do
+            Chams.Enabled = false
+        end
+        
+        -- Hide FOV circle and target GUI
+        FOVCircle.Visible = false
+        TargetGui.Enabled = false
+    else
+        -- Show FOV circle when enabled
+        FOVCircle.Visible = true
+    end
+end
+
+-- Add players when they join
+Players.PlayerAdded:Connect(function(Player)
+    ESPObjects[Player] = CreateESPObject()
+    Player.CharacterAdded:Connect(function(Character)
+        if ChamsObjects[Player] then
+            ChamsObjects[Player]:Destroy()
+        end
+        ChamsObjects[Player] = CreateChams(Character)
+    end)
+end)
+
+-- Remove players when they leave
+Players.PlayerRemoving:Connect(function(Player)
+    if ESPObjects[Player] then
+        for _, Object in pairs(ESPObjects[Player]) do
+            Object:Remove()
+        end
+        ESPObjects[Player] = nil
+    end
+    if ChamsObjects[Player] then
+        ChamsObjects[Player]:Destroy()
+        ChamsObjects[Player] = nil
+    end
+end)
+
+-- Add existing players
+for _, Player in ipairs(Players:GetPlayers()) do
+    if Player ~= LocalPlayer then
+        ESPObjects[Player] = CreateESPObject()
+        if Player.Character then
+            ChamsObjects[Player] = CreateChams(Player.Character)
+        end
+        Player.CharacterAdded:Connect(function(Character)
+            if ChamsObjects[Player] then
+                ChamsObjects[Player]:Destroy()
+            end
+            ChamsObjects[Player] = CreateChams(Character)
+        end)
+    end
+end
+
+-- Update ESP continuously
+RunService.RenderStepped:Connect(function()
+    if ESP.Enabled then
+        UpdateESP()
+    end
+end)
+
+-- Single key control (F5)
+UserInputService.InputBegan:Connect(function(Input, GameProcessed)
+    if not GameProcessed and Input.KeyCode == Enum.KeyCode.F5 then
+        ToggleESP()
+    end
+end)
+
+print("ESP Controls:")
+print("F5 - Toggle ESP On/Off")
